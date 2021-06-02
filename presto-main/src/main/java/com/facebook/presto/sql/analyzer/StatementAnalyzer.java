@@ -352,9 +352,9 @@ class StatementAnalyzer
                 throw new SemanticException(NOT_SUPPORTED, insert, "Inserting into views is not supported");
             }
 
-            if (metadata.getMaterializedView(session, targetTable).isPresent()) {
-                throw new SemanticException(NOT_SUPPORTED, insert, "Inserting into materialized views is not supported");
-            }
+//            if (metadata.getMaterializedView(session, targetTable).isPresent()) {
+//                throw new SemanticException(NOT_SUPPORTED, insert, "Inserting into materialized views is not supported");
+//            }
 
             // analyze the query that creates the data
             Scope queryScope = process(insert.getQuery(), scope);
@@ -1138,6 +1138,23 @@ class StatementAnalyzer
                 }
                 if (materializedViewAnalysisState.isVisited()) {
                     throw new SemanticException(MATERIALIZED_VIEW_IS_RECURSIVE, table, "Materialized view is recursive");
+                }
+            }
+            else {
+                // Task: Use a better way to test the test cases (check getTableType)
+                // Test for conversion between base query and mv query
+                String mvName = "lineitem_partitioned_view_derived_fields";
+
+                QualifiedName mvQualifiedMVName = QualifiedName.of(mvName);
+
+                Table mvTable = new Table(mvQualifiedMVName);
+                QualifiedObjectName mvQualifiedObjectName = createQualifiedObjectName(session, mvTable, mvTable.getName());
+                Optional<ConnectorMaterializedViewDefinition> mvOptView = metadata.getMaterializedView(session, mvQualifiedObjectName);
+
+                if (mvOptView.isPresent() && statement instanceof Query) {
+                    SchemaTableName baseSchemaTableName = new SchemaTableName(name.getSchemaName(), name.getObjectName());
+                    String convertedBaseToViewSql = convertBaseQueryToMaterializedViewSQL(baseSchemaTableName, (Query) statement, mvTable, mvOptView.get());
+                    System.out.println(convertedBaseToViewSql);
                 }
             }
 
