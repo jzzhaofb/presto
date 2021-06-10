@@ -1039,32 +1039,6 @@ public class TestHiveLogicalPlanner
         }
     }
 
-    @Test(enabled = true)
-    public void testBaseToMaterializedViewConversion()
-    {
-        QueryRunner queryRunner = getQueryRunner();
-        try {
-            queryRunner.execute("CREATE TABLE orders_partitioned WITH (partitioned_by = ARRAY['ds']) AS " +
-                    "SELECT orderkey, orderpriority, '2020-01-01' as ds FROM orders WHERE orderkey < 1000 " +
-                    "UNION ALL " +
-                    "SELECT orderkey, orderpriority, '2019-01-02' as ds FROM orders WHERE orderkey > 1000");
-
-            assertUpdate("CREATE MATERIALIZED VIEW test_orders_view WITH (partitioned_by = ARRAY['mvds']) " +
-                    "AS SELECT orderkey as ok, orderpriority as op, ds as mvds FROM orders_partitioned");
-            assertTrue(getQueryRunner().tableExists(getSession(), "test_orders_view"));
-            assertUpdate("INSERT INTO test_orders_view(ok, op, mvds) " +
-                    "select orderkey, orderpriority, ds from orders_partitioned where ds='2020-01-01'", 255);
-
-            //String viewQuery = "SELECT ok, op from test_orders_view";
-            String baseQuery = "SELECT orderkey,orderpriority from orders_partitioned where orderkey <  10000";
-            getExplainPlan(baseQuery, LOGICAL);
-        }
-        finally {
-            queryRunner.execute("DROP TABLE IF EXISTS test_orders_view");
-            queryRunner.execute("DROP TABLE IF EXISTS orders_partitioned");
-        }
-    }
-
     // TODO: plan verification https://github.com/prestodb/presto/issues/16031
     // TODO: enable all materialized view tests after https://github.com/prestodb/presto/pull/15996
     @Test(enabled = false)
