@@ -13,11 +13,14 @@
  */
 package com.facebook.presto.sql.analyzer;
 
+import com.facebook.presto.sql.SqlFormatterUtil;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.sql.tree.Table;
 import org.testng.annotations.Test;
+
+import java.util.Optional;
 
 import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
@@ -388,6 +391,60 @@ public class TestMaterializedViewQueryOptimizer
 
         String expectedViewSql = format("SELECT COUNT(mv_count_id), country From %s WHERE country <> 'USA' GROUP BY country HAVING COUNT(mv_count_id) <=15 ORDER BY COUNT(mv_count_id) DESC", view);
         Query expectedViewQuery = (Query) sqlParser.createStatement(expectedViewSql);
+
+        assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
+    }
+
+    @Test(enabled = false)
+    public void testQueryOptimizationUsingMaterializedViewWithJoinTable()
+    {
+        SqlParser sqlParser = new SqlParser();
+        String baseTable1 = "base1";
+        String baseTable2 = "base2";
+        String view = "view";
+
+        // Definition of materialized view
+        String originalViewSql = format("SELECT %s.id as mv_id, base1_column, base2_column From %s JOIN %s ON %s.id = %s.id", baseTable1, baseTable1, baseTable2, baseTable1, baseTable2);
+        Query originalViewQuery = (Query) sqlParser.createStatement(originalViewSql);
+
+        String baseQuerySql = format("SELECT %s.id as id, base1_column, base2_column From %s JOIN %s ON %s.id = %s.id", baseTable1, baseTable1, baseTable2, baseTable1, baseTable2);
+        Query baseQuery = (Query) sqlParser.createStatement(baseQuerySql);
+
+        Table viewTable = new Table(QualifiedName.of(view));
+
+        Query optimizedBaseToViewQuery = (Query) new MaterializedViewQueryOptimizer()
+                .process(baseQuery, new MaterializedViewQueryOptimizer.MaterializedViewQueryOptimizerContext(viewTable, originalViewQuery));
+
+        String expectedViewSql = format("SELECT mv_a, b From %s where mv_a < 10 and c > 10 or mv_d = '2000-01-01'", view);
+        Query expectedViewQuery = (Query) sqlParser.createStatement(expectedViewSql);
+
+        assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
+    }
+
+    @Test(enabled = false)
+    public void testQueryOptimizationUsingMaterializedViewWithJoinTableWithAliasedRelation()
+    {
+        SqlParser sqlParser = new SqlParser();
+        String baseTable1 = "base1";
+        String baseTable2 = "base2";
+        String view = "view";
+
+        // Definition of materialized view
+        String originalViewSql = format("SELECT %s.id as mv_id, base1_column, base2_column From %s JOIN %s ON %s.id = %s.id", baseTable1, baseTable1, baseTable2, baseTable1, baseTable2);
+        Query originalViewQuery = (Query) sqlParser.createStatement(originalViewSql);
+
+        String baseQuerySql = format("SELECT b1.id as id, base1_column, base2_column From %s b1 JOIN %s b2 ON b1.id = b2.id", baseTable1, baseTable2);
+        Query baseQuery = (Query) sqlParser.createStatement(baseQuerySql);
+
+        Table viewTable = new Table(QualifiedName.of(view));
+
+        Query optimizedBaseToViewQuery = (Query) new MaterializedViewQueryOptimizer()
+                .process(baseQuery, new MaterializedViewQueryOptimizer.MaterializedViewQueryOptimizerContext(viewTable, originalViewQuery));
+
+        String expectedViewSql = format("SELECT mv_id, base1_column, base2_column From %s", view);
+        Query expectedViewQuery = (Query) sqlParser.createStatement(expectedViewSql);
+
+        System.out.println(SqlFormatterUtil.getFormattedSql(optimizedBaseToViewQuery, sqlParser, Optional.empty()));
 
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }

@@ -13,19 +13,23 @@
  */
 package com.facebook.presto.sql.analyzer;
 
+import com.facebook.presto.sql.tree.AliasedRelation;
 import com.facebook.presto.sql.tree.AllColumns;
 import com.facebook.presto.sql.tree.ArithmeticBinaryExpression;
 import com.facebook.presto.sql.tree.AstVisitor;
 import com.facebook.presto.sql.tree.ComparisonExpression;
+import com.facebook.presto.sql.tree.DereferenceExpression;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.GroupBy;
 import com.facebook.presto.sql.tree.GroupingElement;
 import com.facebook.presto.sql.tree.Identifier;
+import com.facebook.presto.sql.tree.Join;
 import com.facebook.presto.sql.tree.Literal;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.Node;
 import com.facebook.presto.sql.tree.OrderBy;
+import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.sql.tree.QueryBody;
 import com.facebook.presto.sql.tree.QuerySpecification;
@@ -128,6 +132,16 @@ public class MaterializedViewQueryOptimizer
     }
 
     @Override
+    protected Node visitDereferenceExpression(DereferenceExpression node, MaterializedViewQueryOptimizerContext context)
+    {
+        QualifiedName qname = DereferenceExpression.getQualifiedName(node);
+        String s1 = qname.toString();
+        String s2 = node.toString();
+        boolean b = s1.equals(s2);
+        return node;
+    }
+
+    @Override
     protected Node visitArithmeticBinary(ArithmeticBinaryExpression node, MaterializedViewQueryOptimizerContext context)
     {
         Expression rewriteLeft = (Expression) process(node.getLeft(), context);
@@ -173,6 +187,22 @@ public class MaterializedViewQueryOptimizer
     }
 
     // Assuming the current base query applies to this specific materialized view
+    @Override
+    protected Node visitAliasedRelation(AliasedRelation node, MaterializedViewQueryOptimizerContext context)
+    {
+        String alias = node.getAlias().getValue();
+
+        return context.getMaterializedViewTable();
+    }
+
+    @Override
+    protected Node visitJoin(Join node, MaterializedViewQueryOptimizerContext context)
+    {
+        process(node.getLeft(), context);
+        process(node.getRight(), context);
+        return context.getMaterializedViewTable();
+    }
+
     @Override
     protected Node visitRelation(Relation node, MaterializedViewQueryOptimizerContext context)
     {
@@ -263,6 +293,7 @@ public class MaterializedViewQueryOptimizer
         private Table materializedViewTable;
         private Query originalSqlQuery;
         private Map<String, String> baseToViewColumnMap;
+        private Map<Relation, String> aliasedRelationMap;
 
         public MaterializedViewQueryOptimizerContext(
                 Table materializedViewTable,
@@ -271,6 +302,7 @@ public class MaterializedViewQueryOptimizer
             this.materializedViewTable = materializedViewTable;
             this.originalSqlQuery = originalSqlQuery;
             baseToViewColumnMap = new HashMap<>();
+            aliasedRelationMap = new HashMap<>();
             createBaseToViewColumnMap();
         }
 
