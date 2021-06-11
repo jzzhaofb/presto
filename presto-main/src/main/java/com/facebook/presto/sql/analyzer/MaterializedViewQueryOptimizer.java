@@ -25,6 +25,7 @@ import com.facebook.presto.sql.tree.Identifier;
 import com.facebook.presto.sql.tree.Literal;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.Node;
+import com.facebook.presto.sql.tree.OrderBy;
 import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.sql.tree.QueryBody;
 import com.facebook.presto.sql.tree.QuerySpecification;
@@ -33,6 +34,7 @@ import com.facebook.presto.sql.tree.Select;
 import com.facebook.presto.sql.tree.SelectItem;
 import com.facebook.presto.sql.tree.SimpleGroupBy;
 import com.facebook.presto.sql.tree.SingleColumn;
+import com.facebook.presto.sql.tree.SortItem;
 import com.facebook.presto.sql.tree.Table;
 import com.facebook.presto.sql.tree.TableSubquery;
 import com.google.common.collect.ImmutableList;
@@ -50,6 +52,12 @@ public class MaterializedViewQueryOptimizer
     public Node process(Node node, MaterializedViewQueryOptimizerContext context)
     {
         return super.process(node, context);
+    }
+
+    @Override
+    public Node visitNode(Node node, MaterializedViewQueryOptimizerContext context)
+    {
+        return node;
     }
 
     @Override
@@ -71,18 +79,21 @@ public class MaterializedViewQueryOptimizer
     @Override
     protected Node visitQuerySpecification(QuerySpecification node, MaterializedViewQueryOptimizerContext context)
     {
-        Select rewriteSelect = (Select) process(node.getSelect(), context);
+        // Process getFrom before all others to acquire alias relation if any
         Optional<Relation> rewriteFrom = node.getFrom().isPresent() ? Optional.of((Relation) process(node.getFrom().get(), context)) : Optional.empty();
+        Select rewriteSelect = (Select) process(node.getSelect(), context);
         Optional<Expression> rewriteWhere = node.getWhere().isPresent() ? Optional.of((Expression) process(node.getWhere().get(), context)) : Optional.empty();
         Optional<GroupBy> rewriteGroupBy = node.getGroupBy().isPresent() ? Optional.of((GroupBy) process(node.getGroupBy().get(), context)) : Optional.empty();
+        Optional<Expression> rewriteHaving = node.getHaving().isPresent() ? Optional.of((Expression) process(node.getHaving().get(), context)) : Optional.empty();
+        Optional<OrderBy> rewriteOrderBy = node.getOrderBy().isPresent() ? Optional.of((OrderBy) process(node.getOrderBy().get(), context)) : Optional.empty();
 
         return new QuerySpecification(
                 rewriteSelect,
                 rewriteFrom,
                 rewriteWhere,
                 rewriteGroupBy,
-                node.getHaving(),
-                node.getOrderBy(),
+                rewriteHaving,
+                rewriteOrderBy,
                 node.getLimit());
     }
 
@@ -161,6 +172,13 @@ public class MaterializedViewQueryOptimizer
                 rewriteArguments.build());
     }
 
+    // Assuming the current base query applies to this specific materialized view
+    @Override
+    protected Node visitRelation(Relation node, MaterializedViewQueryOptimizerContext context)
+    {
+        return context.getMaterializedViewTable();
+    }
+
     @Override
     protected Node visitTable(Table node, MaterializedViewQueryOptimizerContext context)
     {
@@ -206,6 +224,27 @@ public class MaterializedViewQueryOptimizer
         return new GroupBy(
                 node.isDistinct(),
                 rewriteGroupBy.build());
+    }
+
+    @Override
+    protected Node visitOrderBy(OrderBy node, MaterializedViewQueryOptimizerContext context)
+    {
+        ImmutableList.Builder<SortItem> rewriteOrderBy = ImmutableList.builder();
+        for (SortItem sortItem : node.getSortItems()) {
+            SortItem rewriteSortItem = (SortItem) process(sortItem, context);
+            rewriteOrderBy.add(rewriteSortItem);
+        }
+        return new OrderBy(rewriteOrderBy.build());
+    }
+
+    @Override
+    protected Node visitSortItem(SortItem node, MaterializedViewQueryOptimizerContext context)
+    {
+        Expression rewriteSortKey = (Expression) process(node.getSortKey(), context);
+        return new SortItem(
+                rewriteSortKey,
+                node.getOrdering(),
+                node.getNullOrdering());
     }
 
     @Override

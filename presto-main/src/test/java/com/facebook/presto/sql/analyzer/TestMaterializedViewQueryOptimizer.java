@@ -24,7 +24,7 @@ import static org.testng.Assert.assertEquals;
 
 public class TestMaterializedViewQueryOptimizer
 {
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedView()
     {
         SqlParser sqlParser = new SqlParser();
@@ -49,7 +49,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithAlias()
     {
         SqlParser sqlParser = new SqlParser();
@@ -74,7 +74,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithAliasResult()
     {
         SqlParser sqlParser = new SqlParser();
@@ -99,7 +99,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithAllColumnsSelect()
     {
         SqlParser sqlParser = new SqlParser();
@@ -124,7 +124,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithDerivedFields()
     {
         SqlParser sqlParser = new SqlParser();
@@ -158,7 +158,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithDerivedFieldsWithAlias()
     {
         SqlParser sqlParser = new SqlParser();
@@ -192,7 +192,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithArithmeticBinary()
     {
         SqlParser sqlParser = new SqlParser();
@@ -217,7 +217,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithArithmeticBinaryWithAlias()
     {
         SqlParser sqlParser = new SqlParser();
@@ -242,7 +242,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithWhereCondition()
     {
         SqlParser sqlParser = new SqlParser();
@@ -267,7 +267,7 @@ public class TestMaterializedViewQueryOptimizer
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
     }
 
-    @Test(enabled = false)
+    @Test
     public void testQueryOptimizationUsingMaterializedViewWithWhereConditionWithAlias()
     {
         SqlParser sqlParser = new SqlParser();
@@ -287,6 +287,106 @@ public class TestMaterializedViewQueryOptimizer
                 .process(baseQuery, new MaterializedViewQueryOptimizer.MaterializedViewQueryOptimizerContext(viewTable, originalViewQuery));
 
         String expectedViewSql = format("SELECT mv_a, b From %s where mv_a < 10 and c > 10 or mv_d = '2000-01-01'", view);
+        Query expectedViewQuery = (Query) sqlParser.createStatement(expectedViewSql);
+
+        assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
+    }
+
+    @Test
+    public void testQueryOptimizationUsingMaterializedViewWithOrderBy()
+    {
+        SqlParser sqlParser = new SqlParser();
+        String baseTable = "base_table";
+        String view = "view";
+
+        // Definition of materialized view
+        String originalViewSql = format("SELECT a, b, c From %s", baseTable);
+        Query originalViewQuery = (Query) sqlParser.createStatement(originalViewSql);
+
+        String baseQuerySql = format("SELECT a, b, c From %s ORDER BY c ASC, b DESC, a", baseTable);
+        Query baseQuery = (Query) sqlParser.createStatement(baseQuerySql);
+
+        Table viewTable = new Table(QualifiedName.of(view));
+
+        Query optimizedBaseToViewQuery = (Query) new MaterializedViewQueryOptimizer()
+                .process(baseQuery, new MaterializedViewQueryOptimizer.MaterializedViewQueryOptimizerContext(viewTable, originalViewQuery));
+
+        String expectedViewSql = format("SELECT a, b, c From %s ORDER BY c ASC, b DESC, a", view);
+        Query expectedViewQuery = (Query) sqlParser.createStatement(expectedViewSql);
+
+        assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
+    }
+
+    @Test
+    public void testQueryOptimizationUsingMaterializedViewWithOrderByWithAlias()
+    {
+        SqlParser sqlParser = new SqlParser();
+        String baseTable = "base_table";
+        String view = "view";
+
+        // Definition of materialized view
+        String originalViewSql = format("SELECT a as mv_a, b, c as mv_c From %s", baseTable);
+        Query originalViewQuery = (Query) sqlParser.createStatement(originalViewSql);
+
+        String baseQuerySql = format("SELECT a, b, c From %s ORDER BY c ASC, b DESC, a", baseTable);
+        Query baseQuery = (Query) sqlParser.createStatement(baseQuerySql);
+
+        Table viewTable = new Table(QualifiedName.of(view));
+
+        Query optimizedBaseToViewQuery = (Query) new MaterializedViewQueryOptimizer()
+                .process(baseQuery, new MaterializedViewQueryOptimizer.MaterializedViewQueryOptimizerContext(viewTable, originalViewQuery));
+
+        String expectedViewSql = format("SELECT mv_a, b, mv_c From %s ORDER BY mv_c ASC, b DESC, mv_a", view);
+        Query expectedViewQuery = (Query) sqlParser.createStatement(expectedViewSql);
+
+        assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
+    }
+
+    @Test
+    public void testQueryOptimizationUsingMaterializedViewWithFunctionCallInOrderBy()
+    {
+        SqlParser sqlParser = new SqlParser();
+        String baseTable = "base_table";
+        String view = "view";
+
+        // Definition of materialized view
+        String originalViewSql = format("SELECT COUNT(a) as mv_count_a, b From %s GROUP BY b", baseTable);
+        Query originalViewQuery = (Query) sqlParser.createStatement(originalViewSql);
+
+        String baseQuerySql = format("SELECT COUNT(a), b From %s GROUP BY b ORDER BY COUNT(a) DESC, b ASC", baseTable);
+        Query baseQuery = (Query) sqlParser.createStatement(baseQuerySql);
+
+        Table viewTable = new Table(QualifiedName.of(view));
+
+        Query optimizedBaseToViewQuery = (Query) new MaterializedViewQueryOptimizer()
+                .process(baseQuery, new MaterializedViewQueryOptimizer.MaterializedViewQueryOptimizerContext(viewTable, originalViewQuery));
+
+        String expectedViewSql = format("SELECT COUNT(mv_count_a), b From %s GROUP BY b ORDER BY COUNT(mv_count_a) DESC, b ASC", view);
+        Query expectedViewQuery = (Query) sqlParser.createStatement(expectedViewSql);
+
+        assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
+    }
+
+    @Test
+    public void testQueryOptimizationUsingMaterializedViewWithHaving()
+    {
+        SqlParser sqlParser = new SqlParser();
+        String baseTable = "base_table";
+        String view = "view";
+
+        // Definition of materialized view
+        String originalViewSql = format("SELECT COUNT(id) as mv_count_id, country From %s GROUP BY country", baseTable);
+        Query originalViewQuery = (Query) sqlParser.createStatement(originalViewSql);
+
+        String baseQuerySql = format("SELECT COUNT(id), country From %s WHERE country <> 'USA' GROUP BY country HAVING COUNT(id) <=15 ORDER BY COUNT(id) DESC", baseTable);
+        Query baseQuery = (Query) sqlParser.createStatement(baseQuerySql);
+
+        Table viewTable = new Table(QualifiedName.of(view));
+
+        Query optimizedBaseToViewQuery = (Query) new MaterializedViewQueryOptimizer()
+                .process(baseQuery, new MaterializedViewQueryOptimizer.MaterializedViewQueryOptimizerContext(viewTable, originalViewQuery));
+
+        String expectedViewSql = format("SELECT COUNT(mv_count_id), country From %s WHERE country <> 'USA' GROUP BY country HAVING COUNT(mv_count_id) <=15 ORDER BY COUNT(mv_count_id) DESC", view);
         Query expectedViewQuery = (Query) sqlParser.createStatement(expectedViewSql);
 
         assertEquals(optimizedBaseToViewQuery, expectedViewQuery);
