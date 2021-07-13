@@ -38,6 +38,11 @@ import com.facebook.presto.sql.tree.SortItem;
 import com.facebook.presto.sql.tree.Table;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
 import static com.facebook.presto.sql.analyzer.MaterializedViewInformationExtractor.MaterializedViewInfo;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NOT_SUPPORTED;
 import static java.lang.String.format;
@@ -50,6 +55,7 @@ public class MaterializedViewQueryOptimizer
 
     private final Table materializedView;
     private final Query materializedViewQuery;
+    private final Set<Identifier> baseQueryColumnAlias = new HashSet<>();
 
     private MaterializedViewInfo materializedViewInfo;
 
@@ -100,7 +106,7 @@ public class MaterializedViewQueryOptimizer
         if (materializedViewInfo.getWhereClause().isPresent() && !materializedViewInfo.getWhereClause().equals(node.getWhere())) {
             throw new IllegalStateException("Query with no where clause is not rewritable by materialized view with where clause");
         }
-        if (materializedViewInfo.getGroupBy().isPresent() && !node.getGroupBy().isPresent()) {
+        if (!materializedViewInfo.getGroupBy().isEmpty() && !node.getGroupBy().isPresent()) {
             throw new IllegalStateException("Query with no groupBy clause is not rewritable by materialized view with groupBy clause");
         }
         // TODO: Add HAVING validation to the validator https://github.com/prestodb/presto/issues/16406
@@ -137,6 +143,9 @@ public class MaterializedViewQueryOptimizer
     @Override
     protected Node visitSingleColumn(SingleColumn node, Void context)
     {
+        if (node.getAlias().isPresent()) {
+            baseQueryColumnAlias.add(node.getAlias().get());
+        }
         return new SingleColumn((Expression) process(node.getExpression(), context), node.getAlias());
     }
 
@@ -158,10 +167,13 @@ public class MaterializedViewQueryOptimizer
     @Override
     protected Node visitIdentifier(Identifier node, Void context)
     {
-        if (!materializedViewInfo.getBaseToViewColumnMap().containsKey(node)) {
+        if (!materializedViewInfo.getBaseToViewColumnMap().containsKey(node) && !baseQueryColumnAlias.contains(node)) {
             throw new IllegalStateException("Materialized view definition does not contain mapping for the column: " + node.getValue());
         }
-        return new Identifier(materializedViewInfo.getBaseToViewColumnMap().get(node).getValue(), node.isDelimited());
+        if (materializedViewInfo.getBaseToViewColumnMap().containsKey(node)) {
+            return new Identifier(materializedViewInfo.getBaseToViewColumnMap().get(node).getValue(), node.isDelimited());
+        }
+        return node;
     }
 
     @Override
@@ -220,7 +232,7 @@ public class MaterializedViewQueryOptimizer
     {
         ImmutableList.Builder<GroupingElement> rewrittenGroupBy = ImmutableList.builder();
         for (GroupingElement element : node.getGroupingElements()) {
-            if (materializedViewInfo.getGroupBy().isPresent() && !materializedViewInfo.getGroupBy().get().contains(element)) {
+            if (!materializedViewInfo.getGroupBy().isEmpty() && !materializedViewInfo.getGroupBy().contains(element)) {
                 throw new IllegalStateException(format("Grouping element %s is not present in materialized view groupBy field", element));
             }
             rewrittenGroupBy.add((GroupingElement) process(element, context));
@@ -233,9 +245,6 @@ public class MaterializedViewQueryOptimizer
     {
         ImmutableList.Builder<SortItem> rewrittenOrderBy = ImmutableList.builder();
         for (SortItem sortItem : node.getSortItems()) {
-            if (!materializedViewInfo.getBaseToViewColumnMap().containsKey(sortItem.getSortKey())) {
-                throw new IllegalStateException(format("Sort key %s is not present in materialized view select fields", sortItem.getSortKey()));
-            }
             rewrittenOrderBy.add((SortItem) process(sortItem, context));
         }
         return new OrderBy(rewrittenOrderBy.build());
@@ -244,6 +253,9 @@ public class MaterializedViewQueryOptimizer
     @Override
     protected Node visitSortItem(SortItem node, Void context)
     {
+        if (node.getSortKey() instanceof Identifier && baseQueryColumnAlias.contains(node.getSortKey())) {
+            return new SortItem(node.getSortKey(), node.getOrdering(), node.getNullOrdering());
+        }
         return new SortItem((Expression) process(node.getSortKey(), context), node.getOrdering(), node.getNullOrdering());
     }
 

@@ -172,6 +172,28 @@ public class TestMaterializedViewQueryOptimizer
     }
 
     @Test
+    public void testWithAliasInOrderBy()
+    {
+        String originalViewSql = format("SELECT a as mv_a, b, c as mv_c FROM %s", BASE_TABLE_1);
+        String baseQuerySql = format("SELECT a as result_a, b as result_b, c FROM %s ORDER BY c, result_b DESC, a", BASE_TABLE_1);
+        String expectedRewrittenSql = format("SELECT mv_a as result_a, b as result_b, mv_c FROM %s ORDER BY mv_c, result_b DESC, mv_a", VIEW);
+
+        assertOptimizedQuery(originalViewSql, baseQuerySql, expectedRewrittenSql);
+
+        originalViewSql = format("SELECT a as mv_a, c as mv_c FROM %s", BASE_TABLE_1);
+        baseQuerySql = format("SELECT a as c FROM %s ORDER BY c", BASE_TABLE_1);
+        expectedRewrittenSql = format("SELECT mv_a as c FROM %s ORDER BY c", VIEW);
+
+        assertOptimizedQuery(originalViewSql, baseQuerySql, expectedRewrittenSql);
+
+        originalViewSql = format("SELECT SUM(b) as sum_b, a as mv_a, c as mv_c FROM %s GROUP BY mv_a, c", BASE_TABLE_1);
+        baseQuerySql = format("SELECT SUM(b) as result_b, a as result_a, c as result_c FROM %s GROUP BY result_a, c", BASE_TABLE_1);
+        expectedRewrittenSql = format("SELECT sum_b as result_b, mv_a as result_a, mv_c as result_c FROM %s GROUP BY result_a, mv_c", VIEW);
+
+        assertOptimizedQuery(originalViewSql, baseQuerySql, expectedRewrittenSql);
+    }
+
+    @Test
     public void testWithNoMatchingBaseTable()
     {
         String originalViewSql = format("SELECT a, b FROM %s", BASE_TABLE_2);

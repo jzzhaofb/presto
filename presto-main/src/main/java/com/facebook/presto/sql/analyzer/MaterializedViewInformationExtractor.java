@@ -24,18 +24,23 @@ import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.QuerySpecification;
 import com.facebook.presto.sql.tree.Relation;
 import com.facebook.presto.sql.tree.Select;
+import com.facebook.presto.sql.tree.SimpleGroupBy;
 import com.facebook.presto.sql.tree.SingleColumn;
 import com.facebook.presto.sql.tree.Table;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NOT_SUPPORTED;
 import static com.google.common.base.Preconditions.checkState;
+import static java.lang.String.format;
 
 public class MaterializedViewInformationExtractor
         extends DefaultTraversalVisitor<Void, Void>
@@ -79,6 +84,7 @@ public class MaterializedViewInformationExtractor
     {
         Expression baseColumnName = node.getExpression();
         materializedViewInfo.addBaseToViewColumn(baseColumnName, node.getAlias().orElse(new Identifier(baseColumnName.toString())));
+        materializedViewInfo.addViewToBaseColumn(node.getAlias().orElse(new Identifier(baseColumnName.toString())), baseColumnName);
         return null;
     }
 
@@ -89,9 +95,19 @@ public class MaterializedViewInformationExtractor
     }
 
     @Override
-    protected Void visitGroupBy(GroupBy node, Void context)
+    protected Void visitSimpleGroupBy(SimpleGroupBy node, Void context)
     {
-        materializedViewInfo.setGroupBy(Optional.of(ImmutableSet.copyOf(node.getGroupingElements())));
+        ImmutableList.Builder<Expression> groupByExpression = ImmutableList.builder();
+        for(Expression expression : node.getExpressions()) {
+            if (materializedViewInfo.getBaseToViewColumnMap().containsKey(expression)) {
+                groupByExpression.add(expression);
+            } else if(expression instanceof Identifier && materializedViewInfo.getViewToBaseColumnMap().containsKey((Identifier) expression)){
+                groupByExpression.add(materializedViewInfo.getViewToBaseColumnMap().get(expression));
+            } else {
+                throw new IllegalStateException(format("Materialized view definition does not contain %s as a column", expression.toString()));
+            }
+        }
+        materializedViewInfo.addToGroupBy(new SimpleGroupBy(groupByExpression.build()));
         return null;
     }
 
@@ -117,9 +133,10 @@ public class MaterializedViewInformationExtractor
     public static final class MaterializedViewInfo
     {
         private final Map<Expression, Identifier> baseToViewColumnMap = new HashMap<>();
+        private final Map<Identifier, Expression> viewToBaseColumnMap = new HashMap<>();
         private Optional<Relation> baseTable = Optional.empty();
         private Optional<Expression> whereClause = Optional.empty();
-        private Optional<Set<GroupingElement>> groupBy = Optional.empty();
+        private Set<GroupingElement> groupBy = new HashSet<>();
         private boolean isDistinct;
 
         private void addBaseToViewColumn(Expression key, Identifier value)
@@ -127,10 +144,14 @@ public class MaterializedViewInformationExtractor
             baseToViewColumnMap.put(key, value);
         }
 
-        private void setGroupBy(Optional<Set<GroupingElement>> groupBy)
+        private void addViewToBaseColumn(Identifier key, Expression value)
         {
-            checkState(!this.groupBy.isPresent());
-            this.groupBy = groupBy;
+            viewToBaseColumnMap.put(key, value);
+        }
+
+        private void addToGroupBy(GroupingElement groupingElement)
+        {
+            groupBy.add(groupingElement);
         }
 
         private void setBaseTable(Optional<Relation> baseTable)
@@ -150,6 +171,11 @@ public class MaterializedViewInformationExtractor
             isDistinct = state;
         }
 
+        private Map<Identifier, Expression> getViewToBaseColumnMap()
+        {
+            return ImmutableMap.copyOf(viewToBaseColumnMap);
+        }
+
         public Optional<Relation> getBaseTable()
         {
             return baseTable;
@@ -160,7 +186,7 @@ public class MaterializedViewInformationExtractor
             return ImmutableMap.copyOf(baseToViewColumnMap);
         }
 
-        public Optional<Set<GroupingElement>> getGroupBy()
+        public Set<GroupingElement> getGroupBy()
         {
             return groupBy;
         }
